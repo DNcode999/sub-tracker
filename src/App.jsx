@@ -4,8 +4,10 @@ import {
   Users, Clock, CheckCircle, AlertTriangle, UserPlus, 
   ArrowRight, X, LogIn, LogOut, ShieldCheck, Trash2, 
   CalendarClock, Plus, CheckSquare, Layers, Check, ArrowRightLeft, UserX,
-  Calendar
+  Calendar, Copy
 } from 'lucide-react';
+
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 export default function App() {
   const [teachers, setTeachers] = useState([]);
@@ -19,12 +21,13 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Absence Form State with Date Range
+  // Absence Form State
   const todayStr = new Date().toISOString().split('T')[0];
   const [absentTeacherId, setAbsentTeacherId] = useState('');
   const [startDate, setStartDate] = useState(todayStr);
   const [endDate, setEndDate] = useState(todayStr);
-  const [selectedPeriodsToSub, setSelectedPeriodsToSub] = useState([]);
+  // Keyed as: `${dateStr}_${periodId}`
+  const [selectedTaskKeys, setSelectedTaskKeys] = useState([]);
 
   // Modals & Filters
   const [activeAbsence, setActiveAbsence] = useState(null);
@@ -38,11 +41,32 @@ export default function App() {
   const [newTeacherType, setNewTeacherType] = useState('Junior High');
   const [newTeacherPoints, setNewTeacherPoints] = useState(0);
 
-  // Dynamic Flexible Periods for New Teacher
-  const [periods, setPeriods] = useState([
-    { id: '1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
-    { id: '2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
-  ]);
+  // Active day tab in Add Teacher Modal
+  const [activeTabDay, setActiveTabDay] = useState('Monday');
+
+  // Monday to Friday Schedule Builder State
+  const [weeklySchedule, setWeeklySchedule] = useState({
+    Monday: [
+      { id: 'm1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
+      { id: 'm2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
+    ],
+    Tuesday: [
+      { id: 't1', startTime: '08:00', endTime: '09:30', type: 'class', subject: '', section: '' },
+      { id: 't2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' }
+    ],
+    Wednesday: [
+      { id: 'w1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
+      { id: 'w2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
+    ],
+    Thursday: [
+      { id: 'th1', startTime: '08:00', endTime: '09:30', type: 'class', subject: '', section: '' },
+      { id: 'th2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' }
+    ],
+    Friday: [
+      { id: 'f1', startTime: '07:30', endTime: '09:30', type: 'class', subject: '', section: '' },
+      { id: 'f2', startTime: '09:30', endTime: '11:30', type: 'vacant', subject: '', section: '' }
+    ]
+  });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -90,7 +114,26 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
-  // Date Range Helper: Skips Weekends (Sat & Sun)
+  // Helper: Get weekday name from a date string (e.g. '2026-10-26' -> 'Monday')
+  function getWeekday(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'long' });
+  }
+
+  // Helper: Safely get schedule for a given day (supports both Mon-Fri object and legacy flat array)
+  function getTeacherDaySchedule(teacher, dayName) {
+    if (!teacher || !teacher.schedule) return [];
+    if (!Array.isArray(teacher.schedule) && typeof teacher.schedule === 'object') {
+      return teacher.schedule[dayName] || [];
+    }
+    // Backward compatibility for legacy flat array
+    if (Array.isArray(teacher.schedule)) {
+      return teacher.schedule;
+    }
+    return [];
+  }
+
+  // Helper: Get school days (skips Saturday and Sunday)
   function getSchoolDaysInRange(startStr, endStr) {
     const dates = [];
     let curr = new Date(startStr + 'T00:00:00');
@@ -110,84 +153,129 @@ export default function App() {
     return dates;
   }
 
-  // Dynamic Period Builder Handlers
-  function addPeriodRow() {
-    const lastPeriod = periods[periods.length - 1];
-    const newStart = lastPeriod ? lastPeriod.endTime : '10:00';
+  // --- Schedule Builder (Add Teacher) Handlers ---
+  function addPeriodRow(day) {
+    const dayPeriods = weeklySchedule[day] || [];
+    const last = dayPeriods[dayPeriods.length - 1];
+    const newStart = last ? last.endTime : '10:00';
     
     const [h, m] = newStart.split(':').map(Number);
     const endH = String((h + 1) % 24).padStart(2, '0');
     const newEnd = `${endH}:${String(m).padStart(2, '0')}`;
 
     const newPeriod = {
-      id: Date.now().toString(),
+      id: `${day.slice(0, 2).toLowerCase()}_${Date.now()}`,
       startTime: newStart,
       endTime: newEnd,
       type: 'vacant',
       subject: '',
       section: ''
     };
-    setPeriods([...periods, newPeriod]);
+
+    setWeeklySchedule({
+      ...weeklySchedule,
+      [day]: [...dayPeriods, newPeriod]
+    });
   }
 
-  function updatePeriod(id, field, value) {
-    setPeriods(periods.map(p => p.id === id ? { ...p, [field]: value } : p));
+  function updatePeriod(day, id, field, value) {
+    setWeeklySchedule({
+      ...weeklySchedule,
+      [day]: weeklySchedule[day].map(p => p.id === id ? { ...p, [field]: value } : p)
+    });
   }
 
-  function removePeriodRow(id) {
-    if (periods.length === 1) return alert('A teacher must have at least 1 period.');
-    setPeriods(periods.filter(p => p.id !== id));
+  function removePeriodRow(day, id) {
+    if (weeklySchedule[day].length === 1) {
+      return alert(`${day} must have at least 1 period.`);
+    }
+    setWeeklySchedule({
+      ...weeklySchedule,
+      [day]: weeklySchedule[day].filter(p => p.id !== id)
+    });
   }
 
-  function handleTeacherSelect(teacherId) {
-    setAbsentTeacherId(teacherId);
-    const teacher = teachers.find(t => t.id === teacherId);
-    if (teacher && teacher.schedule) {
-      const classIndices = teacher.schedule
-        .map((p, idx) => p.type === 'class' ? idx : null)
-        .filter(idx => idx !== null);
-      setSelectedPeriodsToSub(classIndices);
+  // Quick Action: Copy Active Day's Schedule to Tuesday through Friday
+  function copyActiveDayToAll() {
+    const activePeriods = weeklySchedule[activeTabDay];
+    const newSched = {};
+    DAYS_OF_WEEK.forEach(d => {
+      newSched[d] = activePeriods.map(p => ({
+        ...p,
+        id: `${d.slice(0, 2).toLowerCase()}_${Math.random().toString(36).substring(2, 7)}`
+      }));
+    });
+    setWeeklySchedule(newSched);
+    alert(`Copied ${activeTabDay}'s schedule to all Monday–Friday days!`);
+  }
+
+  // --- Dynamic Absence Detection Across Date Range ---
+  const absentTeacher = teachers.find(t => t.id === absentTeacherId);
+  const schoolDaysInRange = getSchoolDaysInRange(startDate, endDate);
+
+  // Group classes detected for each day in range
+  const dailyDetectedClasses = schoolDaysInRange.map(dateStr => {
+    const weekday = getWeekday(dateStr);
+    const daySchedule = getTeacherDaySchedule(absentTeacher, weekday);
+    const classes = daySchedule.filter(p => p.type === 'class');
+    return {
+      date: dateStr,
+      weekday,
+      classes
+    };
+  });
+
+  // When teacher or date changes, pre-check all detected classes
+  useEffect(() => {
+    if (!absentTeacherId) {
+      setSelectedTaskKeys([]);
+      return;
+    }
+    const allKeys = [];
+    dailyDetectedClasses.forEach(day => {
+      day.classes.forEach(cls => {
+        allKeys.push(`${day.date}_${cls.id}`);
+      });
+    });
+    setSelectedTaskKeys(allKeys);
+  }, [absentTeacherId, startDate, endDate]);
+
+  function toggleTaskKey(key) {
+    if (selectedTaskKeys.includes(key)) {
+      setSelectedTaskKeys(selectedTaskKeys.filter(k => k !== key));
     } else {
-      setSelectedPeriodsToSub([]);
+      setSelectedTaskKeys([...selectedTaskKeys, key]);
     }
   }
 
-  function togglePeriodSelection(idx) {
-    if (selectedPeriodsToSub.includes(idx)) {
-      setSelectedPeriodsToSub(selectedPeriodsToSub.filter(i => i !== idx));
-    } else {
-      setSelectedPeriodsToSub([...selectedPeriodsToSub, idx]);
-    }
-  }
-
-  // --- Admin Action: Report Absence Across Date Range ---
+  // --- Admin Action: Report Absence ---
   async function handleReportAbsence(e) {
     e.preventDefault();
     if (!user) return alert('Only administrators can report absences.');
     if (!absentTeacherId) return alert('Please select an absent teacher.');
-    if (selectedPeriodsToSub.length === 0) return alert('Select at least one period to substitute.');
+    if (selectedTaskKeys.length === 0) return alert('Select at least one period to substitute.');
     if (new Date(endDate) < new Date(startDate)) return alert('End date cannot be before start date.');
 
-    const absentTeacher = teachers.find(t => t.id === absentTeacherId);
-    const schoolDays = getSchoolDaysInRange(startDate, endDate);
-
     const newRows = [];
-    schoolDays.forEach(dateStr => {
+    dailyDetectedClasses.forEach(day => {
+      // Each day gets a distinct batch_id so the distinct teacher rule runs per school day
       const dailyBatchId = crypto.randomUUID();
 
-      selectedPeriodsToSub.forEach(idx => {
-        const cls = absentTeacher.schedule[idx];
-        newRows.push({
-          batch_id: dailyBatchId,
-          absence_date: dateStr,
-          absent_teacher_id: absentTeacherId,
-          class_name: `${cls.subject} (${cls.section})`,
-          start_time: cls.startTime,
-          end_time: cls.endTime,
-          period: `${formatTime(cls.startTime)} - ${formatTime(cls.endTime)}`,
-          teacher_type: absentTeacher.teacher_type,
-          status: 'pending'
-        });
+      day.classes.forEach(cls => {
+        const key = `${day.date}_${cls.id}`;
+        if (selectedTaskKeys.includes(key)) {
+          newRows.push({
+            batch_id: dailyBatchId,
+            absence_date: day.date,
+            absent_teacher_id: absentTeacherId,
+            class_name: `${cls.subject} (${cls.section})`,
+            start_time: cls.startTime,
+            end_time: cls.endTime,
+            period: `${formatTime(cls.startTime)} - ${formatTime(cls.endTime)}`,
+            teacher_type: absentTeacher.teacher_type,
+            status: 'pending'
+          });
+        }
       });
     });
 
@@ -195,7 +283,7 @@ export default function App() {
 
     if (!error) {
       setAbsentTeacherId('');
-      setSelectedPeriodsToSub([]);
+      setSelectedTaskKeys([]);
       fetchData();
     }
   }
@@ -229,7 +317,7 @@ export default function App() {
         department: newTeacherDept, 
         teacher_type: newTeacherType,
         points: Number(newTeacherPoints),
-        schedule: periods
+        schedule: weeklySchedule
       }
     ]);
 
@@ -239,10 +327,6 @@ export default function App() {
       setNewTeacherDept('');
       setNewTeacherType('Junior High');
       setNewTeacherPoints(0);
-      setPeriods([
-        { id: '1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
-        { id: '2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
-      ]);
       fetchData();
     }
   }
@@ -256,7 +340,7 @@ export default function App() {
     }
   }
 
-  // --- Time Math Helpers ---
+  // --- Time Math & Formatting ---
   function toMinutes(timeStr) {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
@@ -278,15 +362,19 @@ export default function App() {
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
-  function getCoveringVacantSlot(teacher, absStartStr, absEndStr) {
-    if (!teacher.schedule || !Array.isArray(teacher.schedule)) return null;
+  // --- DAY-AWARE COMPATIBILITY ENGINE ---
+  // Checks candidate's schedule on THAT specific day of the week
+  function getCoveringVacantSlot(teacher, dateStr, absStartStr, absEndStr) {
+    const weekday = getWeekday(dateStr);
+    const daySchedule = getTeacherDaySchedule(teacher, weekday);
 
     const absStart = toMinutes(absStartStr);
     const absEnd = toMinutes(absEndStr);
 
     if (absEnd <= absStart) return null;
 
-    const hasClassConflict = teacher.schedule.some(p => {
+    // 1. Conflict Check: No teaching class on THAT day during this time
+    const hasClassConflict = daySchedule.some(p => {
       if (p.type !== 'class') return false;
       const cStart = toMinutes(p.startTime);
       const cEnd = toMinutes(p.endTime);
@@ -295,7 +383,8 @@ export default function App() {
 
     if (hasClassConflict) return null;
 
-    const matchingVacant = teacher.schedule.find(p => {
+    // 2. Coverage Check: Has a vacant slot on THAT day covering the entire time window
+    const matchingVacant = daySchedule.find(p => {
       if (p.type !== 'vacant') return false;
       const vStart = toMinutes(p.startTime);
       const vEnd = toMinutes(p.endTime);
@@ -316,14 +405,7 @@ export default function App() {
     return a.absence_date === dateFilter;
   });
 
-  const selectedTeacherClasses = absentTeacherId
-    ? (teachers.find(t => t.id === absentTeacherId)?.schedule || [])
-        .map((p, idx) => ({ ...p, originalIndex: idx }))
-        .filter(p => p.type === 'class')
-    : [];
-
-  const daysSelectedCount = getSchoolDaysInRange(startDate, endDate).length;
-
+  // Enforce Distinct Teacher per Day: Disqualify teachers already subbing for this teacher on this day
   const teachersAlreadyAssignedInThisBatch = activeAbsence
     ? absences
         .filter(a => a.batch_id === activeAbsence.batch_id && a.sub_teacher_id !== null)
@@ -336,7 +418,7 @@ export default function App() {
         .filter(t => !teachersAlreadyAssignedInThisBatch.includes(t.id))
         .map(t => ({
           teacher: t,
-          vacantSlot: getCoveringVacantSlot(t, activeAbsence.start_time, activeAbsence.end_time)
+          vacantSlot: getCoveringVacantSlot(t, activeAbsence.absence_date, activeAbsence.start_time, activeAbsence.end_time)
         }))
         .filter(item => item.vacantSlot !== null)
         .filter(item => subTypeFilter === 'all' ? true : item.teacher.teacher_type === subTypeFilter)
@@ -351,7 +433,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold tracking-tight">SubTrack</h1>
           <span className="text-xs bg-indigo-500 font-medium px-2 py-0.5 rounded-full flex items-center gap-1">
-            <Calendar size={12} /> Leave & Multi-Period Rotation
+            <Calendar size={12} /> Mon–Fri Timetable Engine
           </span>
         </div>
 
@@ -359,7 +441,7 @@ export default function App() {
           {user && (
             <button 
               onClick={() => setShowAddTeacher(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition shadow-sm"
+              className="bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
             >
               <UserPlus size={16} /> Add Teacher
             </button>
@@ -372,7 +454,7 @@ export default function App() {
               </span>
               <button 
                 onClick={handleLogout}
-                className="bg-indigo-800 hover:bg-indigo-900 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
+                className="bg-indigo-800 hover:bg-indigo-900 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
               >
                 <LogOut size={14} /> Log Out
               </button>
@@ -380,7 +462,7 @@ export default function App() {
           ) : (
             <button 
               onClick={() => setShowLoginModal(true)}
-              className="bg-white text-indigo-700 hover:bg-indigo-50 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition shadow-sm"
+              className="bg-white text-indigo-700 hover:bg-indigo-50 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
             >
               <LogIn size={15} /> Admin Login
             </button>
@@ -394,7 +476,7 @@ export default function App() {
         {!user && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-2.5 rounded-lg flex items-center justify-between">
             <span>Viewing as <strong>Teacher / Guest (Read-Only)</strong>. Log in as an administrator to report teacher absences or assign substitutes.</span>
-            <button onClick={() => setShowLoginModal(true)} className="underline font-bold hover:text-amber-950">Log In</button>
+            <button onClick={() => setShowLoginModal(true)} className="underline font-bold hover:text-amber-950 cursor-pointer">Log In</button>
           </div>
         )}
 
@@ -436,7 +518,7 @@ export default function App() {
           {/* Left Column: Absence Logger & Tasks */}
           <div className="lg:col-span-7 space-y-6">
 
-            {/* Admin: Report Absent Teacher with Date Range */}
+            {/* Admin: Report Absent Teacher with Mon-Fri Detection */}
             {user && (
               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
                 <div>
@@ -444,7 +526,7 @@ export default function App() {
                     <UserX size={18} className="text-red-500" /> Report Absent Teacher / Leave
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Select a faculty member and date range. Tasks will be created for each period on every school day.
+                    Select a faculty member and date range. The system checks each day's specific schedule.
                   </p>
                 </div>
                 
@@ -453,7 +535,7 @@ export default function App() {
                     <label className="text-xs font-medium text-slate-600 block mb-1">Select Absent Faculty Member</label>
                     <select 
                       value={absentTeacherId} 
-                      onChange={e => handleTeacherSelect(e.target.value)}
+                      onChange={e => setAbsentTeacherId(e.target.value)}
                       required
                       className="w-full text-sm border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
                     >
@@ -466,7 +548,7 @@ export default function App() {
                     </select>
                   </div>
 
-                  {/* DATE RANGE PICKER */}
+                  {/* Date Range Picker */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
                     <div>
                       <label className="text-xs font-medium text-slate-600 block mb-1 flex items-center gap-1">
@@ -499,80 +581,85 @@ export default function App() {
                       />
                     </div>
                     <div className="md:col-span-2 text-xs text-indigo-700 bg-indigo-50 p-2 rounded-lg border border-indigo-100 flex items-center justify-between">
-                      <span><strong>Total School Days:</strong> {daysSelectedCount} day(s) (Weekends auto-excluded)</span>
-                      <span>{selectedPeriodsToSub.length * daysSelectedCount} total sub task(s)</span>
+                      <span><strong>Total School Days:</strong> {schoolDaysInRange.length} day(s) (Weekends auto-excluded)</span>
+                      <span><strong>{selectedTaskKeys.length}</strong> tasks will be generated</span>
                     </div>
                   </div>
 
-                  {/* Teaching Periods Checklist */}
+                  {/* Day-by-Day Teaching Classes Detected */}
                   {absentTeacherId && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
-                      <div className="flex justify-between items-center">
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3">
+                      <div className="flex justify-between items-center border-b pb-2">
                         <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                          <CheckSquare size={14} className="text-indigo-600" /> Teaching Periods to Cover Each Day:
+                          <CheckSquare size={14} className="text-indigo-600" /> Classes Detected by Day:
                         </span>
                         <span className="text-xs font-medium text-slate-500">
-                          {selectedPeriodsToSub.length} period(s) selected
+                          {selectedTaskKeys.length} period(s) selected
                         </span>
                       </div>
 
-                      {selectedTeacherClasses.length === 0 ? (
-                        <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
-                          This teacher does not have any teaching classes configured.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {selectedTeacherClasses.map(cls => (
-                            <label key={cls.originalIndex} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg cursor-pointer hover:border-indigo-300 transition select-none">
-                              <div className="flex items-center gap-2.5">
-                                <input 
-                                  type="checkbox" 
-                                  checked={selectedPeriodsToSub.includes(cls.originalIndex)}
-                                  onChange={() => togglePeriodSelection(cls.originalIndex)}
-                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                                />
-                                <div>
-                                  <p className="text-xs font-bold text-slate-800">{cls.subject} ({cls.section})</p>
-                                  <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                                    <Clock size={11} /> {formatTime(cls.startTime)} - {formatTime(cls.endTime)}
-                                  </p>
-                                </div>
-                              </div>
-                              <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
-                                1 Unique Sub / Day
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
+                      <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                        {dailyDetectedClasses.map(day => (
+                          <div key={day.date} className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5">
+                            <div className="flex justify-between items-center text-xs font-bold text-slate-700 border-b border-slate-100 pb-1">
+                              <span className="text-indigo-700">{formatDateFriendly(day.date)} ({day.weekday})</span>
+                              <span className="text-slate-400 font-normal">{day.classes.length} class(es)</span>
+                            </div>
+
+                            {day.classes.length === 0 ? (
+                              <p className="text-[11px] text-slate-400 italic py-1">No teaching classes on this day.</p>
+                            ) : (
+                              day.classes.map(cls => {
+                                const key = `${day.date}_${cls.id}`;
+                                return (
+                                  <label key={key} className="flex items-center justify-between p-1.5 hover:bg-slate-50 rounded cursor-pointer select-none text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <input 
+                                        type="checkbox"
+                                        checked={selectedTaskKeys.includes(key)}
+                                        onChange={() => toggleTaskKey(key)}
+                                        className="w-3.5 h-3.5 rounded text-indigo-600"
+                                      />
+                                      <span className="font-semibold text-slate-800">{cls.subject} ({cls.section})</span>
+                                    </div>
+                                    <span className="text-[11px] text-slate-500">
+                                      {formatTime(cls.startTime)} - {formatTime(cls.endTime)}
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
                   <div className="flex justify-end pt-1">
                     <button 
                       type="submit" 
-                      disabled={!absentTeacherId || selectedPeriodsToSub.length === 0}
-                      className="bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold text-sm px-4 py-2.5 rounded-lg transition shadow-sm flex items-center gap-2"
+                      disabled={!absentTeacherId || selectedTaskKeys.length === 0}
+                      className="bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold text-sm px-4 py-2.5 rounded-lg transition shadow-sm flex items-center gap-2 cursor-pointer"
                     >
-                      <Layers size={16} /> Generate {selectedPeriodsToSub.length * daysSelectedCount} Substitution Tasks
+                      <Layers size={16} /> Generate {selectedTaskKeys.length} Substitution Tasks
                     </button>
                   </div>
                 </form>
               </div>
             )}
 
-            {/* Unassigned Absences Tasks with Date Tabs */}
+            {/* Unassigned Tasks with Date Filter Tabs */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
               <div className="flex justify-between items-center">
                 <h2 className="text-base font-bold text-slate-800">Unassigned Tasks</h2>
-                <span className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-medium">1 Unique Sub / Period</span>
+                <span className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-medium">1 Unique Sub / Day</span>
               </div>
 
               {uniqueDates.length > 1 && (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                   <button 
                     onClick={() => setDateFilter('all')}
-                    className={`px-2.5 py-1 rounded-lg font-medium transition shrink-0 ${dateFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition shrink-0 cursor-pointer ${dateFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}
                   >
                     All Dates ({pendingAbsences.length})
                   </button>
@@ -580,7 +667,7 @@ export default function App() {
                     <button 
                       key={d}
                       onClick={() => setDateFilter(d)}
-                      className={`px-2.5 py-1 rounded-lg font-medium transition shrink-0 ${dateFilter === d ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition shrink-0 cursor-pointer ${dateFilter === d ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}
                     >
                       {formatDateFriendly(d)}
                     </button>
@@ -593,7 +680,7 @@ export default function App() {
               ) : (
                 <div className="space-y-3">
                   {filteredPendingAbsences.map(item => {
-                    const absentTeacher = teachers.find(t => t.id === item.absent_teacher_id);
+                    const absent = teachers.find(t => t.id === item.absent_teacher_id);
                     return (
                       <div key={item.id} className="p-3.5 border border-amber-200 bg-amber-50/50 rounded-xl flex justify-between items-center">
                         <div>
@@ -607,7 +694,7 @@ export default function App() {
                               {item.teacher_type === 'Junior High' ? 'JHS' : 'SHS'}
                             </span>
                           </div>
-                          <p className="font-semibold text-sm text-slate-800 mt-1">{absentTeacher?.name || 'Unknown'}</p>
+                          <p className="font-semibold text-sm text-slate-800 mt-1">{absent?.name || 'Unknown'}</p>
                           <p className="text-xs text-slate-600 font-medium">{item.class_name}</p>
                           <span className="inline-block mt-1 text-[11px] font-semibold text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded">
                             <Clock size={11} className="inline mr-1 text-slate-400" />
@@ -620,7 +707,7 @@ export default function App() {
                               setActiveAbsence(item);
                               setSubTypeFilter('all');
                             }}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer"
                           >
                             Assign Sub
                           </button>
@@ -634,7 +721,7 @@ export default function App() {
               )}
             </div>
 
-            {/* Substitution History */}
+            {/* History */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
               <h2 className="text-base font-bold mb-3">Recent Substitution History</h2>
               <div className="overflow-x-auto">
@@ -677,7 +764,7 @@ export default function App() {
 
           </div>
 
-          {/* Right Column: Faculty Roster */}
+          {/* Right Column: Faculty Roster with Mon-Fri Timetable */}
           <div className="lg:col-span-5">
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm sticky top-6">
               <div className="flex justify-between items-center mb-3">
@@ -712,7 +799,7 @@ export default function App() {
                         {user && (
                           <button 
                             onClick={() => handleDeleteTeacher(teacher.id)}
-                            className="text-slate-400 hover:text-red-500 p-1"
+                            className="text-slate-400 hover:text-red-500 p-1 cursor-pointer"
                             title="Remove Teacher"
                           >
                             <Trash2 size={15} />
@@ -721,23 +808,24 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="mt-2.5 pt-2 border-t border-slate-200/60">
-                      <p className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1 mb-1">
-                        <CalendarClock size={11} /> Configured Schedule:
+                    {/* Mon - Fri Breakdown Pills */}
+                    <div className="mt-2.5 pt-2 border-t border-slate-200/60 space-y-1">
+                      <p className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
+                        <CalendarClock size={11} /> Mon–Fri Schedule Overview:
                       </p>
-                      <div className="flex flex-wrap gap-1">
-                        {(teacher.schedule || []).map((p, idx) => (
-                          <span 
-                            key={idx} 
-                            className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                              p.type === 'vacant' 
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold' 
-                                : 'bg-slate-100 text-slate-600 border-slate-200'
-                            }`}
-                          >
-                            {formatTime(p.startTime)}-{formatTime(p.endTime)}: {p.type === 'vacant' ? 'Vacant' : `${p.subject} (${p.section})`}
-                          </span>
-                        ))}
+                      <div className="grid grid-cols-5 gap-1 text-center">
+                        {DAYS_OF_WEEK.map(d => {
+                          const sched = getTeacherDaySchedule(teacher, d);
+                          const classesCount = sched.filter(p => p.type === 'class').length;
+                          const vacantCount = sched.filter(p => p.type === 'vacant').length;
+                          return (
+                            <div key={d} className="bg-white p-1 rounded border border-slate-200 text-[10px]">
+                              <p className="font-bold text-slate-600">{d.slice(0, 3)}</p>
+                              <p className="text-indigo-600 font-medium">{classesCount} cls</p>
+                              <p className="text-emerald-600 font-medium">{vacantCount} vac</p>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -757,7 +845,7 @@ export default function App() {
               <h3 className="text-base font-bold flex items-center gap-2">
                 <ShieldCheck className="text-indigo-600" size={20} /> Administrator Login
               </h3>
-              <button onClick={() => setShowLoginModal(false)}><X size={18} className="text-slate-400" /></button>
+              <button onClick={() => setShowLoginModal(false)} className="cursor-pointer"><X size={18} className="text-slate-400" /></button>
             </div>
 
             {loginError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{loginError}</p>}
@@ -784,7 +872,7 @@ export default function App() {
                   className="w-full text-sm border border-slate-300 rounded-lg p-2.5" 
                 />
               </div>
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm transition">
+              <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm transition cursor-pointer">
                 Sign In
               </button>
             </form>
@@ -792,13 +880,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Add Teacher */}
+      {/* Modal: Add Teacher with Mon-Fri Day Tabs */}
       {showAddTeacher && user && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white w-full max-w-2xl rounded-2xl p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-base font-bold">Add Teacher & Configure Custom Schedule</h3>
-              <button onClick={() => setShowAddTeacher(false)}><X size={20} className="text-slate-400" /></button>
+              <h3 className="text-base font-bold">Add Teacher & Configure Monday–Friday Schedule</h3>
+              <button onClick={() => setShowAddTeacher(false)} className="cursor-pointer"><X size={20} className="text-slate-400" /></button>
             </div>
             
             <form onSubmit={handleAddTeacher} className="space-y-4">
@@ -851,26 +939,56 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Dynamic Period Builder */}
+              {/* MONDAY TO FRIDAY DAY TABS */}
               <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                      <CalendarClock size={14} className="text-indigo-600" /> Daily Periods & Schedule
+                      <CalendarClock size={14} className="text-indigo-600" /> Mon–Fri Timetable Builder
                     </h4>
-                    <p className="text-[11px] text-slate-500">Pick arbitrary times. Choose Vacant or Teaching Class.</p>
+                    <p className="text-[11px] text-slate-500">Configure each day individually or copy to all days.</p>
                   </div>
                   <button 
                     type="button" 
-                    onClick={addPeriodRow} 
-                    className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center gap-1"
+                    onClick={copyActiveDayToAll}
+                    className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center gap-1 cursor-pointer"
                   >
-                    <Plus size={13} /> Add Period
+                    <Copy size={12} /> Copy {activeTabDay} to All Days
                   </button>
                 </div>
 
+                {/* Day Tabs */}
+                <div className="flex items-center gap-1 border-b border-slate-200 pb-2">
+                  {DAYS_OF_WEEK.map(d => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setActiveTabDay(d)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        activeTabDay === d 
+                          ? 'bg-indigo-600 text-white shadow-sm' 
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {d} ({weeklySchedule[d]?.length || 0})
+                    </button>
+                  ))}
+                </div>
+
+                {/* Periods for Active Tab Day */}
                 <div className="space-y-2.5">
-                  {periods.map((period, index) => (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-semibold text-slate-700">{activeTabDay} Periods:</span>
+                    <button 
+                      type="button" 
+                      onClick={() => addPeriodRow(activeTabDay)} 
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus size={13} /> Add Period to {activeTabDay}
+                    </button>
+                  </div>
+
+                  {(weeklySchedule[activeTabDay] || []).map((period, index) => (
                     <div key={period.id} className="p-2.5 bg-white border border-slate-200 rounded-lg shadow-sm space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold text-slate-400">#{index + 1}</span>
@@ -880,7 +998,7 @@ export default function App() {
                             type="time" 
                             step="60"
                             value={period.startTime} 
-                            onChange={e => updatePeriod(period.id, 'startTime', e.target.value)}
+                            onChange={e => updatePeriod(activeTabDay, period.id, 'startTime', e.target.value)}
                             required
                             className="border border-slate-300 rounded p-1 text-xs"
                           />
@@ -889,7 +1007,7 @@ export default function App() {
                             type="time" 
                             step="60"
                             value={period.endTime} 
-                            onChange={e => updatePeriod(period.id, 'endTime', e.target.value)}
+                            onChange={e => updatePeriod(activeTabDay, period.id, 'endTime', e.target.value)}
                             required
                             className="border border-slate-300 rounded p-1 text-xs"
                           />
@@ -897,8 +1015,8 @@ export default function App() {
 
                         <select 
                           value={period.type}
-                          onChange={e => updatePeriod(period.id, 'type', e.target.value)}
-                          className={`text-xs font-semibold rounded p-1.5 border ${
+                          onChange={e => updatePeriod(activeTabDay, period.id, 'type', e.target.value)}
+                          className={`text-xs font-semibold rounded p-1.5 border cursor-pointer ${
                             period.type === 'vacant' 
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
                               : 'bg-indigo-50 text-indigo-800 border-indigo-300'
@@ -910,8 +1028,8 @@ export default function App() {
 
                         <button 
                           type="button" 
-                          onClick={() => removePeriodRow(period.id)} 
-                          className="text-slate-400 hover:text-red-500 p-1"
+                          onClick={() => removePeriodRow(activeTabDay, period.id)} 
+                          className="text-slate-400 hover:text-red-500 p-1 cursor-pointer"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -923,7 +1041,7 @@ export default function App() {
                             type="text" 
                             placeholder="Subject (e.g. Science 8)" 
                             value={period.subject}
-                            onChange={e => updatePeriod(period.id, 'subject', e.target.value)}
+                            onChange={e => updatePeriod(activeTabDay, period.id, 'subject', e.target.value)}
                             required
                             className="text-xs border border-slate-300 rounded p-1.5"
                           />
@@ -931,7 +1049,7 @@ export default function App() {
                             type="text" 
                             placeholder="Section (e.g. Newton)" 
                             value={period.section}
-                            onChange={e => updatePeriod(period.id, 'section', e.target.value)}
+                            onChange={e => updatePeriod(activeTabDay, period.id, 'section', e.target.value)}
                             required
                             className="text-xs border border-slate-300 rounded p-1.5"
                           />
@@ -943,8 +1061,8 @@ export default function App() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setShowAddTeacher(false)} className="px-3 py-2 text-sm border rounded-lg">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition">Save Teacher & Schedule</button>
+                <button type="button" onClick={() => setShowAddTeacher(false)} className="px-3 py-2 text-sm border rounded-lg cursor-pointer">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition cursor-pointer">Save Teacher & Timetable</button>
               </div>
             </form>
           </div>
@@ -959,35 +1077,35 @@ export default function App() {
               <div>
                 <h3 className="text-base font-bold">Assign Eligible Substitute</h3>
                 <p className="text-xs text-indigo-700 font-semibold mt-0.5">
-                  {formatDateFriendly(activeAbsence.absence_date)} &bull; {activeAbsence.class_name} ({formatTime(activeAbsence.start_time)} - {formatTime(activeAbsence.end_time)})
+                  {formatDateFriendly(activeAbsence.absence_date)} ({getWeekday(activeAbsence.absence_date)}) &bull; {activeAbsence.class_name} ({formatTime(activeAbsence.start_time)} - {formatTime(activeAbsence.end_time)})
                 </p>
               </div>
-              <button onClick={() => setActiveAbsence(null)}><X size={20} className="text-slate-400" /></button>
+              <button onClick={() => setActiveAbsence(null)} className="cursor-pointer"><X size={20} className="text-slate-400" /></button>
             </div>
 
             {/* Rule Banner */}
             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-center gap-1.5">
               <ShieldCheck size={16} className="text-blue-600 shrink-0" />
-              <span><strong>Daily Fair Distribution Rule:</strong> Teachers already assigned to another period of this absent teacher on <strong>{formatDateFriendly(activeAbsence.absence_date)}</strong> are excluded.</span>
+              <span><strong>{getWeekday(activeAbsence.absence_date)} Matching:</strong> Evaluating candidate teachers' {getWeekday(activeAbsence.absence_date)} schedule. Teachers already assigned on this day are excluded.</span>
             </div>
 
             {/* Sub Filter */}
             <div className="flex items-center gap-1.5 text-xs bg-slate-100 p-1 rounded-lg">
               <button 
                 onClick={() => setSubTypeFilter('all')} 
-                className={`flex-1 py-1 rounded font-medium transition ${subTypeFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}
+                className={`flex-1 py-1 rounded font-medium transition cursor-pointer ${subTypeFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}
               >
                 All Eligible ({eligibleSubsWithSlots.length})
               </button>
               <button 
                 onClick={() => setSubTypeFilter('Junior High')} 
-                className={`flex-1 py-1 rounded font-medium transition ${subTypeFilter === 'Junior High' ? 'bg-white shadow text-teal-800' : 'text-slate-500'}`}
+                className={`flex-1 py-1 rounded font-medium transition cursor-pointer ${subTypeFilter === 'Junior High' ? 'bg-white shadow text-teal-800' : 'text-slate-500'}`}
               >
                 JHS Only
               </button>
               <button 
                 onClick={() => setSubTypeFilter('Senior High')} 
-                className={`flex-1 py-1 rounded font-medium transition ${subTypeFilter === 'Senior High' ? 'bg-white shadow text-purple-800' : 'text-slate-500'}`}
+                className={`flex-1 py-1 rounded font-medium transition cursor-pointer ${subTypeFilter === 'Senior High' ? 'bg-white shadow text-purple-800' : 'text-slate-500'}`}
               >
                 SHS Only
               </button>
@@ -997,7 +1115,7 @@ export default function App() {
               <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-center space-y-1">
                 <p className="text-sm font-bold text-red-700">No available substitutes found</p>
                 <p className="text-xs text-red-600">
-                  Either no teachers have a vacant slot covering <strong>{formatTime(activeAbsence.start_time)} - {formatTime(activeAbsence.end_time)}</strong>, or available teachers are already assigned to other periods of this absent teacher on this date.
+                  Either no teachers have a vacant slot on {getWeekday(activeAbsence.absence_date)} covering <strong>{formatTime(activeAbsence.start_time)} - {formatTime(activeAbsence.end_time)}</strong>, or available teachers are already assigned to other periods on this date.
                 </p>
               </div>
             ) : (
@@ -1018,13 +1136,13 @@ export default function App() {
                       
                       <p className="text-[11px] text-emerald-700 font-medium mt-1 flex items-center gap-1">
                         <Check size={12} className="text-emerald-600" />
-                        Free: {formatTime(vacantSlot.startTime)} - {formatTime(vacantSlot.endTime)}
+                        Free on {getWeekday(activeAbsence.absence_date)}: {formatTime(vacantSlot.startTime)} - {formatTime(vacantSlot.endTime)}
                       </p>
                     </div>
 
                     <button 
                       onClick={() => handleAssignSub(sub)} 
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer"
                     >
                       Assign (+1 pt)
                     </button>
