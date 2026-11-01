@@ -4,7 +4,7 @@ import {
   Users, Clock, CheckCircle, AlertTriangle, UserPlus, 
   ArrowRight, X, LogIn, LogOut, ShieldCheck, Trash2, 
   CalendarClock, Plus, CheckSquare, Layers, Check, ArrowRightLeft, UserX,
-  Calendar, Copy
+  Calendar, Copy, Coffee, LogOut as DismissalIcon
 } from 'lucide-react';
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -43,27 +43,37 @@ export default function App() {
   // Active day tab in Add Teacher Modal
   const [activeTabDay, setActiveTabDay] = useState('Monday');
 
-  // Monday to Friday Schedule Builder State
+  // Monday to Friday Schedule Builder State (with Break and Dismissal defaults)
   const [weeklySchedule, setWeeklySchedule] = useState({
     Monday: [
       { id: 'm1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
-      { id: 'm2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
+      { id: 'm2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' },
+      { id: 'm3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
+      { id: 'm4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
     ],
     Tuesday: [
       { id: 't1', startTime: '08:00', endTime: '09:30', type: 'class', subject: '', section: '' },
-      { id: 't2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' }
+      { id: 't2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' },
+      { id: 't3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
+      { id: 't4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
     ],
     Wednesday: [
       { id: 'w1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
-      { id: 'w2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
+      { id: 'w2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' },
+      { id: 'w3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
+      { id: 'w4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
     ],
     Thursday: [
       { id: 'th1', startTime: '08:00', endTime: '09:30', type: 'class', subject: '', section: '' },
-      { id: 'th2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' }
+      { id: 'th2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' },
+      { id: 'th3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
+      { id: 'th4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
     ],
     Friday: [
       { id: 'f1', startTime: '07:30', endTime: '09:30', type: 'class', subject: '', section: '' },
-      { id: 'f2', startTime: '09:30', endTime: '11:30', type: 'vacant', subject: '', section: '' }
+      { id: 'f2', startTime: '09:30', endTime: '11:30', type: 'vacant', subject: '', section: '' },
+      { id: 'f3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
+      { id: 'f4', startTime: '15:30', endTime: '16:00', type: 'dismissal', subject: '', section: '' }
     ]
   });
 
@@ -206,6 +216,7 @@ export default function App() {
   const absentTeacher = teachers.find(t => t.id === absentTeacherId);
   const schoolDaysInRange = getSchoolDaysInRange(startDate, endDate);
 
+  // Only teaching classes require substitutes (Breaks & Dismissals are excluded)
   const dailyDetectedClasses = schoolDaysInRange.map(dateStr => {
     const weekday = getWeekday(dateStr);
     const daySchedule = getTeacherDaySchedule(absentTeacher, weekday);
@@ -352,6 +363,9 @@ export default function App() {
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
+  // --- COMPATIBILITY ENGINE ---
+  // A candidate CANNOT sub if they have a Class, a Break, or Dismissal overlapping the absence time.
+  // They MUST have an explicit "Vacant" period fully covering the absence time window.
   function getCoveringVacantSlot(teacher, dateStr, absStartStr, absEndStr) {
     const weekday = getWeekday(dateStr);
     const daySchedule = getTeacherDaySchedule(teacher, weekday);
@@ -361,15 +375,17 @@ export default function App() {
 
     if (absEnd <= absStart) return null;
 
-    const hasClassConflict = daySchedule.some(p => {
-      if (p.type !== 'class') return false;
-      const cStart = toMinutes(p.startTime);
-      const cEnd = toMinutes(p.endTime);
-      return Math.max(absStart, cStart) < Math.min(absEnd, cEnd);
+    // 1. Conflict Check: Any non-vacant period (Teaching Class, Break, or Dismissal) overlapping is a conflict!
+    const hasConflict = daySchedule.some(p => {
+      if (p.type === 'vacant') return false; // Vacant does not conflict
+      const pStart = toMinutes(p.startTime);
+      const pEnd = toMinutes(p.endTime);
+      return Math.max(absStart, pStart) < Math.min(absEnd, pEnd);
     });
 
-    if (hasClassConflict) return null;
+    if (hasConflict) return null;
 
+    // 2. Coverage Check: Must have a "vacant" slot covering the required window
     const matchingVacant = daySchedule.find(p => {
       if (p.type !== 'vacant') return false;
       const vStart = toMinutes(p.startTime);
@@ -413,7 +429,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased">
       
-      {/* Top Responsive Header */}
+      {/* Top Header */}
       <header className="bg-indigo-700 text-white shadow-md sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           
@@ -425,12 +441,11 @@ export default function App() {
               <div>
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight">SubTrack</h1>
                 <span className="text-[10px] sm:text-xs text-indigo-200 block sm:inline">
-                  Mon–Fri Timetable Engine
+                  Mon–Fri Timetable & Duty Engine
                 </span>
               </div>
             </div>
 
-            {/* Quick Mobile Status Icon */}
             {user ? (
               <span className="sm:hidden text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <ShieldCheck size={12} /> Admin
@@ -445,7 +460,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Desktop & Tablet Action Buttons */}
           <div className="flex items-center justify-between w-full sm:w-auto gap-2">
             {user && (
               <button 
@@ -483,12 +497,11 @@ export default function App() {
       {/* Main Container */}
       <main className="max-w-7xl mx-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6">
 
-        {/* Read-Only Banner */}
         {!user && (
           <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-sm">
             <span>
               <AlertTriangle size={14} className="inline mr-1 text-amber-600" />
-              Viewing as <strong>Teacher / Guest (Read-Only)</strong>. Log in as an admin to report absences or assign substitutes.
+              Viewing as <strong>Teacher / Guest (Read-Only)</strong>. Log in as an administrator to report teacher absences or assign substitutes.
             </span>
             <button 
               onClick={() => setShowLoginModal(true)} 
@@ -499,7 +512,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Counter Stats: 2 cols on mobile, 4 on desktop */}
+        {/* Counter Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
           <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
             <div>
@@ -517,7 +530,7 @@ export default function App() {
           </div>
           <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
             <div>
-              <p className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending</p>
+              <p className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending Tasks</p>
               <h2 className="text-xl sm:text-2xl font-bold text-amber-600">{pendingAbsences.length}</h2>
             </div>
             <Clock className="text-amber-500 w-5 h-5 sm:w-6 sm:h-6" />
@@ -531,10 +544,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* Responsive Content Grid: Stacks vertically on mobile/tablet, 2-column on desktop */}
+        {/* Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
 
-          {/* Left Column (7 cols): Absence Logger & Task Cards */}
+          {/* Left Column (7 cols): Absence Logger & Tasks */}
           <div className="lg:col-span-7 space-y-4 sm:space-y-6">
 
             {/* Admin: Report Absent Teacher */}
@@ -545,7 +558,7 @@ export default function App() {
                     <UserX size={18} className="text-red-500" /> Report Absent Teacher / Leave
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Select a faculty member and date range. The system checks each day's timetable.
+                    Select a faculty member and date range. Teaching classes are automatically detected (Breaks & Dismissals are excluded).
                   </p>
                 </div>
                 
@@ -605,15 +618,15 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Day-by-Day Teaching Classes Detected */}
+                  {/* Teaching Classes Checklist */}
                   {absentTeacherId && (
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 sm:p-3.5 space-y-3">
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-1 border-b border-slate-200 pb-2">
                         <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                          <CheckSquare size={14} className="text-indigo-600" /> Classes Detected by Day:
+                          <CheckSquare size={14} className="text-indigo-600" /> Teaching Classes Requiring Subs:
                         </span>
                         <span className="text-xs font-medium text-slate-500">
-                          {selectedTaskKeys.length} period(s) selected
+                          {selectedTaskKeys.length} class(es) selected
                         </span>
                       </div>
 
@@ -674,7 +687,6 @@ export default function App() {
                 <span className="text-[10px] sm:text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-medium">1 Sub / Period / Day</span>
               </div>
 
-              {/* Responsive Scrollable Date Filter Tabs */}
               {uniqueDates.length > 1 && (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 text-xs touch-pan-x">
                   <button 
@@ -830,7 +842,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Mon - Fri Breakdown */}
+                    {/* Mon - Fri Breakdown with Classes & Vacant Counts */}
                     <div className="mt-2.5 pt-2 border-t border-slate-200/60 space-y-1">
                       <p className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
                         <CalendarClock size={11} /> Mon–Fri Schedule:
@@ -902,7 +914,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Responsive Modal: Add Teacher with Mon-Fri Day Tabs */}
+      {/* Responsive Modal: Add Teacher with Mon-Fri Day Tabs & Break/Dismissal */}
       {showAddTeacher && user && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-2xl rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
@@ -968,7 +980,7 @@ export default function App() {
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                       <CalendarClock size={14} className="text-indigo-600" /> Mon–Fri Timetable Builder
                     </h4>
-                    <p className="text-[11px] text-slate-500">Configure each day or copy across all days.</p>
+                    <p className="text-[11px] text-slate-500">Pick Teaching Class, Vacant, Break, or Dismissal for each time slot.</p>
                   </div>
                   <button 
                     type="button" 
@@ -979,7 +991,7 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Horizontally scrollable day tabs */}
+                {/* Day Tabs */}
                 <div className="flex items-center gap-1 border-b border-slate-200 pb-2 overflow-x-auto touch-pan-x">
                   {DAYS_OF_WEEK.map(d => (
                     <button
@@ -1006,14 +1018,13 @@ export default function App() {
                       onClick={() => addPeriodRow(activeTabDay)} 
                       className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
                     >
-                      <Plus size={13} /> Add Period
+                      <Plus size={13} /> Add Period to {activeTabDay}
                     </button>
                   </div>
 
                   {(weeklySchedule[activeTabDay] || []).map((period, index) => (
                     <div key={period.id} className="p-2.5 bg-white border border-slate-200 rounded-lg shadow-sm space-y-2">
                       
-                      {/* Responsive Row: Stacks cleanly on mobile without horizontal overflow */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         
                         {/* Time Inputs */}
@@ -1040,7 +1051,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Type Dropdown & Delete Button */}
+                        {/* Dropdown with Class, Vacant, Break, Dismissal */}
                         <div className="flex items-center justify-between sm:justify-end gap-2">
                           <select 
                             value={period.type}
@@ -1048,11 +1059,17 @@ export default function App() {
                             className={`text-xs font-semibold rounded p-1.5 border cursor-pointer flex-1 sm:flex-initial ${
                               period.type === 'vacant' 
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
-                                : 'bg-indigo-50 text-indigo-800 border-indigo-300'
+                                : period.type === 'class'
+                                ? 'bg-indigo-50 text-indigo-800 border-indigo-300'
+                                : period.type === 'break'
+                                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                : 'bg-slate-100 text-slate-800 border-slate-300'
                             }`}
                           >
-                            <option value="vacant">Vacant / Free</option>
                             <option value="class">Teaching Class</option>
+                            <option value="vacant">Vacant / Free</option>
+                            <option value="break">Break (Lunch / Health)</option>
+                            <option value="dismissal">Dismissal</option>
                           </select>
 
                           <button 
@@ -1065,6 +1082,7 @@ export default function App() {
                         </div>
                       </div>
 
+                      {/* If Teaching Class, show Subject & Section inputs */}
                       {period.type === 'class' && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                           <input 
@@ -1085,6 +1103,20 @@ export default function App() {
                           />
                         </div>
                       )}
+
+                      {/* Visual indicator for Break & Dismissal */}
+                      {period.type === 'break' && (
+                        <p className="text-[11px] text-amber-700 bg-amber-50/60 px-2 py-1 rounded border border-amber-200/60 flex items-center gap-1">
+                          <Coffee size={12} /> Lunch / Health Break — Protected time (will not generate sub requests or allow subbing).
+                        </p>
+                      )}
+
+                      {period.type === 'dismissal' && (
+                        <p className="text-[11px] text-slate-600 bg-slate-100 px-2 py-1 rounded border border-slate-200 flex items-center gap-1">
+                          <DismissalIcon size={12} /> Dismissal — Teacher is dismissed after this time.
+                        </p>
+                      )}
+
                     </div>
                   ))}
                 </div>
@@ -1130,10 +1162,10 @@ export default function App() {
             {/* Rule Info Banner */}
             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-start sm:items-center gap-1.5">
               <ShieldCheck size={16} className="text-blue-600 shrink-0 mt-0.5 sm:mt-0" />
-              <span>Checking candidate teachers' {getWeekday(activeAbsence.absence_date)} schedule. Teachers already assigned on this day are excluded.</span>
+              <span>Checking candidate teachers' {getWeekday(activeAbsence.absence_date)} schedule. Teachers on Break, Dismissed, or already subbing on this day are excluded.</span>
             </div>
 
-            {/* Responsive Sub Filter Tabs */}
+            {/* Sub Filter */}
             <div className="flex items-center gap-1 text-xs bg-slate-100 p-1 rounded-lg">
               <button 
                 onClick={() => setSubTypeFilter('all')} 
@@ -1159,7 +1191,7 @@ export default function App() {
               <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-center space-y-1">
                 <p className="text-sm font-bold text-red-700">No available substitutes found</p>
                 <p className="text-xs text-red-600">
-                  Either no teachers have a vacant slot on {getWeekday(activeAbsence.absence_date)} covering <strong>{formatTime(activeAbsence.start_time)} - {formatTime(activeAbsence.end_time)}</strong>, or available teachers are already assigned to other periods on this date.
+                  Either no teachers have a vacant slot on {getWeekday(activeAbsence.absence_date)} covering <strong>{formatTime(activeAbsence.start_time)} - {formatTime(activeAbsence.end_time)}</strong>, or available teachers are on Break, Dismissed, or already assigned on this date.
                 </p>
               </div>
             ) : (
