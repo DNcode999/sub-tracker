@@ -4,7 +4,7 @@ import {
   Users, Clock, CheckCircle, AlertTriangle, UserPlus, 
   ArrowRight, X, LogIn, LogOut, ShieldCheck, Trash2, 
   CalendarClock, Plus, CheckSquare, Layers, Check, ArrowRightLeft, UserX,
-  Calendar, Copy, Coffee, LogOut as DismissalIcon
+  Calendar, Copy, Coffee, LogOut as DismissalIcon, Loader2
 } from 'lucide-react';
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -13,6 +13,8 @@ export default function App() {
   const [teachers, setTeachers] = useState([]);
   const [absences, setAbsences] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isSavingTeacher, setIsSavingTeacher] = useState(false);
+  const [isLoggingAbsence, setIsLoggingAbsence] = useState(false);
 
   // Authentication State
   const [user, setUser] = useState(null);
@@ -30,7 +32,7 @@ export default function App() {
 
   // Modals & Filters
   const [activeAbsence, setActiveAbsence] = useState(null);
-  const [subTypeFilter, setSubTypeFilter] = useState('all'); // 'all', 'Junior High', 'Senior High'
+  const [subTypeFilter, setSubTypeFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
   const [showAddTeacher, setShowAddTeacher] = useState(false);
 
@@ -43,37 +45,28 @@ export default function App() {
   // Active day tab in Add Teacher Modal
   const [activeTabDay, setActiveTabDay] = useState('Monday');
 
-  // Monday to Friday Schedule Builder State (with Break and Dismissal defaults)
+  // Monday to Friday Schedule Builder State (Initial defaults set to vacant/break)
   const [weeklySchedule, setWeeklySchedule] = useState({
     Monday: [
-      { id: 'm1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
+      { id: 'm1', startTime: '07:30', endTime: '08:30', type: 'class', subject: 'Math 7', section: 'Diamond' },
       { id: 'm2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' },
-      { id: 'm3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
-      { id: 'm4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
+      { id: 'm3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' }
     ],
     Tuesday: [
-      { id: 't1', startTime: '08:00', endTime: '09:30', type: 'class', subject: '', section: '' },
-      { id: 't2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' },
-      { id: 't3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
-      { id: 't4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
+      { id: 't1', startTime: '08:00', endTime: '09:30', type: 'vacant', subject: '', section: '' },
+      { id: 't2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' }
     ],
     Wednesday: [
-      { id: 'w1', startTime: '07:30', endTime: '08:30', type: 'class', subject: '', section: '' },
-      { id: 'w2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' },
-      { id: 'w3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
-      { id: 'w4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
+      { id: 'w1', startTime: '07:30', endTime: '08:30', type: 'vacant', subject: '', section: '' },
+      { id: 'w2', startTime: '08:30', endTime: '10:00', type: 'vacant', subject: '', section: '' }
     ],
     Thursday: [
-      { id: 'th1', startTime: '08:00', endTime: '09:30', type: 'class', subject: '', section: '' },
-      { id: 'th2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' },
-      { id: 'th3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
-      { id: 'th4', startTime: '16:00', endTime: '16:30', type: 'dismissal', subject: '', section: '' }
+      { id: 'th1', startTime: '08:00', endTime: '09:30', type: 'vacant', subject: '', section: '' },
+      { id: 'th2', startTime: '09:30', endTime: '11:00', type: 'vacant', subject: '', section: '' }
     ],
     Friday: [
-      { id: 'f1', startTime: '07:30', endTime: '09:30', type: 'class', subject: '', section: '' },
-      { id: 'f2', startTime: '09:30', endTime: '11:30', type: 'vacant', subject: '', section: '' },
-      { id: 'f3', startTime: '12:00', endTime: '13:00', type: 'break', subject: '', section: '' },
-      { id: 'f4', startTime: '15:30', endTime: '16:00', type: 'dismissal', subject: '', section: '' }
+      { id: 'f1', startTime: '07:30', endTime: '09:30', type: 'vacant', subject: '', section: '' },
+      { id: 'f2', startTime: '09:30', endTime: '11:30', type: 'vacant', subject: '', section: '' }
     ]
   });
 
@@ -93,8 +86,11 @@ export default function App() {
 
   async function fetchData() {
     setLoading(true);
-    const { data: teacherData } = await supabase.from('teachers').select('*');
-    const { data: absenceData } = await supabase.from('absences').select('*').order('absence_date', { ascending: true });
+    const { data: teacherData, error: tErr } = await supabase.from('teachers').select('*');
+    const { data: absenceData, error: aErr } = await supabase.from('absences').select('*').order('absence_date', { ascending: true });
+
+    if (tErr) console.error('Error fetching teachers:', tErr);
+    if (aErr) console.error('Error fetching absences:', aErr);
 
     if (teacherData) setTeachers(teacherData);
     if (absenceData) setAbsences(absenceData);
@@ -216,7 +212,6 @@ export default function App() {
   const absentTeacher = teachers.find(t => t.id === absentTeacherId);
   const schoolDaysInRange = getSchoolDaysInRange(startDate, endDate);
 
-  // Only teaching classes require substitutes (Breaks & Dismissals are excluded)
   const dailyDetectedClasses = schoolDaysInRange.map(dateStr => {
     const weekday = getWeekday(dateStr);
     const daySchedule = getTeacherDaySchedule(absentTeacher, weekday);
@@ -253,10 +248,12 @@ export default function App() {
   // --- Admin Action: Report Absence ---
   async function handleReportAbsence(e) {
     e.preventDefault();
-    if (!user) return alert('Only administrators can report absences.');
+    if (!user) return alert('Only administrators can report absences. Please log in.');
     if (!absentTeacherId) return alert('Please select an absent teacher.');
     if (selectedTaskKeys.length === 0) return alert('Select at least one period to substitute.');
     if (new Date(endDate) < new Date(startDate)) return alert('End date cannot be before start date.');
+
+    setIsLoggingAbsence(true);
 
     const newRows = [];
     dailyDetectedClasses.forEach(day => {
@@ -269,11 +266,11 @@ export default function App() {
             batch_id: dailyBatchId,
             absence_date: day.date,
             absent_teacher_id: absentTeacherId,
-            class_name: `${cls.subject} (${cls.section})`,
+            class_name: `${cls.subject || 'Class'} (${cls.section || 'General'})`,
             start_time: cls.startTime,
             end_time: cls.endTime,
             period: `${formatTime(cls.startTime)} - ${formatTime(cls.endTime)}`,
-            teacher_type: absentTeacher.teacher_type,
+            teacher_type: absentTeacher?.teacher_type || 'Junior High',
             status: 'pending'
           });
         }
@@ -282,11 +279,17 @@ export default function App() {
 
     const { error } = await supabase.from('absences').insert(newRows);
 
-    if (!error) {
-      setAbsentTeacherId('');
-      setSelectedTaskKeys([]);
-      fetchData();
+    setIsLoggingAbsence(false);
+
+    if (error) {
+      console.error('Error logging absence:', error);
+      alert('Failed to log absence: ' + error.message);
+      return;
     }
+
+    setAbsentTeacherId('');
+    setSelectedTaskKeys([]);
+    fetchData();
   }
 
   // --- Admin Action: Assign Substitute (+1 Point) ---
@@ -294,50 +297,74 @@ export default function App() {
     if (!user) return alert('Only administrators can assign substitutes.');
     if (!activeAbsence) return;
 
-    await supabase.from('absences').update({
+    const { error: absErr } = await supabase.from('absences').update({
       sub_teacher_id: subTeacher.id,
       status: 'covered'
     }).eq('id', activeAbsence.id);
 
-    await supabase.from('teachers').update({
+    if (absErr) {
+      alert('Error assigning sub: ' + absErr.message);
+      return;
+    }
+
+    const { error: tErr } = await supabase.from('teachers').update({
       points: subTeacher.points + 1
     }).eq('id', subTeacher.id);
+
+    if (tErr) {
+      alert('Error updating teacher points: ' + tErr.message);
+    }
 
     setActiveAbsence(null);
     fetchData();
   }
 
-  // --- Admin Action: Add New Teacher ---
+  // --- Admin Action: Add New Teacher (Fixed with error alerts) ---
   async function handleAddTeacher(e) {
     e.preventDefault();
-    if (!user) return alert('Only administrators can add teachers.');
+    if (!user) return alert('Only administrators can add teachers. Please log in.');
+    if (!newTeacherName.trim()) return alert('Please enter the teacher name.');
+    if (!newTeacherDept.trim()) return alert('Please enter the department.');
 
-    const { error } = await supabase.from('teachers').insert([
+    setIsSavingTeacher(true);
+
+    const { data, error } = await supabase.from('teachers').insert([
       { 
-        name: newTeacherName, 
-        department: newTeacherDept, 
+        name: newTeacherName.trim(), 
+        department: newTeacherDept.trim(), 
         teacher_type: newTeacherType,
-        points: Number(newTeacherPoints),
+        points: Number(newTeacherPoints) || 0,
         schedule: weeklySchedule
       }
-    ]);
+    ]).select();
 
-    if (!error) {
-      setShowAddTeacher(false);
-      setNewTeacherName('');
-      setNewTeacherDept('');
-      setNewTeacherType('Junior High');
-      setNewTeacherPoints(0);
-      fetchData();
+    setIsSavingTeacher(false);
+
+    if (error) {
+      console.error('Supabase Save Error:', error);
+      alert('Database error: ' + error.message + '\n\nPlease ensure you ran Step 1 to disable RLS in Supabase.');
+      return;
     }
+
+    setShowAddTeacher(false);
+    setNewTeacherName('');
+    setNewTeacherDept('');
+    setNewTeacherType('Junior High');
+    setNewTeacherPoints(0);
+    fetchData();
+    alert('Teacher saved successfully!');
   }
 
   // --- Admin Action: Delete Teacher ---
   async function handleDeleteTeacher(id) {
     if (!user) return alert('Only administrators can delete teachers.');
     if (confirm('Are you sure you want to delete this teacher?')) {
-      await supabase.from('teachers').delete().eq('id', id);
-      fetchData();
+      const { error } = await supabase.from('teachers').delete().eq('id', id);
+      if (error) {
+        alert('Error deleting teacher: ' + error.message);
+      } else {
+        fetchData();
+      }
     }
   }
 
@@ -363,9 +390,6 @@ export default function App() {
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
-  // --- COMPATIBILITY ENGINE ---
-  // A candidate CANNOT sub if they have a Class, a Break, or Dismissal overlapping the absence time.
-  // They MUST have an explicit "Vacant" period fully covering the absence time window.
   function getCoveringVacantSlot(teacher, dateStr, absStartStr, absEndStr) {
     const weekday = getWeekday(dateStr);
     const daySchedule = getTeacherDaySchedule(teacher, weekday);
@@ -375,9 +399,9 @@ export default function App() {
 
     if (absEnd <= absStart) return null;
 
-    // 1. Conflict Check: Any non-vacant period (Teaching Class, Break, or Dismissal) overlapping is a conflict!
+    // Any non-vacant slot (class, break, dismissal) overlapping is a conflict
     const hasConflict = daySchedule.some(p => {
-      if (p.type === 'vacant') return false; // Vacant does not conflict
+      if (p.type === 'vacant') return false;
       const pStart = toMinutes(p.startTime);
       const pEnd = toMinutes(p.endTime);
       return Math.max(absStart, pStart) < Math.min(absEnd, pEnd);
@@ -385,7 +409,6 @@ export default function App() {
 
     if (hasConflict) return null;
 
-    // 2. Coverage Check: Must have a "vacant" slot covering the required window
     const matchingVacant = daySchedule.find(p => {
       if (p.type !== 'vacant') return false;
       const vStart = toMinutes(p.startTime);
@@ -530,7 +553,7 @@ export default function App() {
           </div>
           <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
             <div>
-              <p className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending Tasks</p>
+              <p className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending</p>
               <h2 className="text-xl sm:text-2xl font-bold text-amber-600">{pendingAbsences.length}</h2>
             </div>
             <Clock className="text-amber-500 w-5 h-5 sm:w-6 sm:h-6" />
@@ -547,7 +570,7 @@ export default function App() {
         {/* Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
 
-          {/* Left Column (7 cols): Absence Logger & Tasks */}
+          {/* Left Column: Absence Logger & Tasks */}
           <div className="lg:col-span-7 space-y-4 sm:space-y-6">
 
             {/* Admin: Report Absent Teacher */}
@@ -558,7 +581,7 @@ export default function App() {
                     <UserX size={18} className="text-red-500" /> Report Absent Teacher / Leave
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Select a faculty member and date range. Teaching classes are automatically detected (Breaks & Dismissals are excluded).
+                    Select a faculty member and date range. Teaching classes are automatically detected.
                   </p>
                 </div>
                 
@@ -670,10 +693,18 @@ export default function App() {
                   <div className="flex justify-end pt-1">
                     <button 
                       type="submit" 
-                      disabled={!absentTeacherId || selectedTaskKeys.length === 0}
+                      disabled={!absentTeacherId || selectedTaskKeys.length === 0 || isLoggingAbsence}
                       className="w-full sm:w-auto bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-lg transition shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                     >
-                      <Layers size={16} /> Generate {selectedTaskKeys.length} Sub Tasks
+                      {isLoggingAbsence ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" /> Logging Absences...
+                        </>
+                      ) : (
+                        <>
+                          <Layers size={16} /> Generate {selectedTaskKeys.length} Sub Tasks
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>
@@ -798,7 +829,7 @@ export default function App() {
 
           </div>
 
-          {/* Right Column (5 cols): Faculty Roster with Mon-Fri Timetable */}
+          {/* Right Column: Faculty Roster */}
           <div className="lg:col-span-5">
             <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-sm sticky top-20">
               <div className="flex justify-between items-center mb-3">
@@ -842,7 +873,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Mon - Fri Breakdown with Classes & Vacant Counts */}
                     <div className="mt-2.5 pt-2 border-t border-slate-200/60 space-y-1">
                       <p className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
                         <CalendarClock size={11} /> Mon–Fri Schedule:
@@ -871,7 +901,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* Responsive Modal: Admin Login */}
+      {/* Modal: Admin Login */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm rounded-xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
@@ -914,7 +944,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Responsive Modal: Add Teacher with Mon-Fri Day Tabs & Break/Dismissal */}
+      {/* Modal: Add Teacher */}
       {showAddTeacher && user && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-2xl rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
@@ -1066,8 +1096,8 @@ export default function App() {
                                 : 'bg-slate-100 text-slate-800 border-slate-300'
                             }`}
                           >
-                            <option value="class">Teaching Class</option>
                             <option value="vacant">Vacant / Free</option>
+                            <option value="class">Teaching Class</option>
                             <option value="break">Break (Lunch / Health)</option>
                             <option value="dismissal">Dismissal</option>
                           </select>
@@ -1090,7 +1120,6 @@ export default function App() {
                             placeholder="Subject (e.g. Science 8)" 
                             value={period.subject}
                             onChange={e => updatePeriod(activeTabDay, period.id, 'subject', e.target.value)}
-                            required
                             className="text-xs border border-slate-300 rounded p-2"
                           />
                           <input 
@@ -1098,22 +1127,20 @@ export default function App() {
                             placeholder="Section (e.g. Newton)" 
                             value={period.section}
                             onChange={e => updatePeriod(activeTabDay, period.id, 'section', e.target.value)}
-                            required
                             className="text-xs border border-slate-300 rounded p-2"
                           />
                         </div>
                       )}
 
-                      {/* Visual indicator for Break & Dismissal */}
                       {period.type === 'break' && (
                         <p className="text-[11px] text-amber-700 bg-amber-50/60 px-2 py-1 rounded border border-amber-200/60 flex items-center gap-1">
-                          <Coffee size={12} /> Lunch / Health Break — Protected time (will not generate sub requests or allow subbing).
+                          <Coffee size={12} /> Lunch / Health Break — Protected time.
                         </p>
                       )}
 
                       {period.type === 'dismissal' && (
                         <p className="text-[11px] text-slate-600 bg-slate-100 px-2 py-1 rounded border border-slate-200 flex items-center gap-1">
-                          <DismissalIcon size={12} /> Dismissal — Teacher is dismissed after this time.
+                          <DismissalIcon size={12} /> Dismissal — Teacher is dismissed.
                         </p>
                       )}
 
@@ -1126,15 +1153,23 @@ export default function App() {
                 <button 
                   type="button" 
                   onClick={() => setShowAddTeacher(false)} 
-                  className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg cursor-pointer"
+                  disabled={isSavingTeacher}
+                  className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition cursor-pointer shadow-sm active:scale-95"
+                  disabled={isSavingTeacher}
+                  className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Save Teacher & Timetable
+                  {isSavingTeacher ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Saving Teacher...
+                    </>
+                  ) : (
+                    'Save Teacher & Timetable'
+                  )}
                 </button>
               </div>
             </form>
@@ -1159,13 +1194,11 @@ export default function App() {
               <button onClick={() => setActiveAbsence(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer"><X size={20} /></button>
             </div>
 
-            {/* Rule Info Banner */}
             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-start sm:items-center gap-1.5">
               <ShieldCheck size={16} className="text-blue-600 shrink-0 mt-0.5 sm:mt-0" />
-              <span>Checking candidate teachers' {getWeekday(activeAbsence.absence_date)} schedule. Teachers on Break, Dismissed, or already subbing on this day are excluded.</span>
+              <span>Checking candidate teachers' {getWeekday(activeAbsence.absence_date)} schedule. Teachers on Break, Dismissed, or already assigned on this day are excluded.</span>
             </div>
 
-            {/* Sub Filter */}
             <div className="flex items-center gap-1 text-xs bg-slate-100 p-1 rounded-lg">
               <button 
                 onClick={() => setSubTypeFilter('all')} 
