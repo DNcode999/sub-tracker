@@ -45,7 +45,7 @@ export default function App() {
   // Active day tab in Add Teacher Modal
   const [activeTabDay, setActiveTabDay] = useState('Monday');
 
-  // Monday to Friday Schedule Builder State (Initial defaults set to vacant/break)
+  // Monday to Friday Schedule Builder State
   const [weeklySchedule, setWeeklySchedule] = useState({
     Monday: [
       { id: 'm1', startTime: '07:30', endTime: '08:30', type: 'class', subject: 'Math 7', section: 'Diamond' },
@@ -319,30 +319,29 @@ export default function App() {
     fetchData();
   }
 
-  // --- Admin Action: Add New Teacher (Fixed with error alerts) ---
+  // --- Admin Action: Add New Teacher (Department is now OPTIONAL) ---
   async function handleAddTeacher(e) {
     e.preventDefault();
     if (!user) return alert('Only administrators can add teachers. Please log in.');
-    if (!newTeacherName.trim()) return alert('Please enter the teacher name.');
-    if (!newTeacherDept.trim()) return alert('Please enter the department.');
+    if (!newTeacherName.trim()) return alert('Please enter the teacher full name.');
 
     setIsSavingTeacher(true);
 
-    const { data, error } = await supabase.from('teachers').insert([
+    const { error } = await supabase.from('teachers').insert([
       { 
         name: newTeacherName.trim(), 
-        department: newTeacherDept.trim(), 
+        department: newTeacherDept.trim() || null, // Stores clean null/empty if omitted
         teacher_type: newTeacherType,
         points: Number(newTeacherPoints) || 0,
         schedule: weeklySchedule
       }
-    ]).select();
+    ]);
 
     setIsSavingTeacher(false);
 
     if (error) {
       console.error('Supabase Save Error:', error);
-      alert('Database error: ' + error.message + '\n\nPlease ensure you ran Step 1 to disable RLS in Supabase.');
+      alert('Database error: ' + error.message + '\n\nIf error persists, run: alter table teachers alter column department drop not null; in Supabase SQL editor.');
       return;
     }
 
@@ -399,7 +398,6 @@ export default function App() {
 
     if (absEnd <= absStart) return null;
 
-    // Any non-vacant slot (class, break, dismissal) overlapping is a conflict
     const hasConflict = daySchedule.some(p => {
       if (p.type === 'vacant') return false;
       const pStart = toMinutes(p.startTime);
@@ -476,7 +474,7 @@ export default function App() {
             ) : (
               <button 
                 onClick={() => setShowLoginModal(true)}
-                className="sm:hidden text-xs bg-white text-indigo-700 font-bold px-2.5 py-1.5 rounded-lg shadow-sm"
+                className="sm:hidden text-xs bg-white text-indigo-700 font-bold px-2.5 py-1.5 rounded-lg shadow-sm cursor-pointer"
               >
                 Log In
               </button>
@@ -592,18 +590,18 @@ export default function App() {
                       value={absentTeacherId} 
                       onChange={e => setAbsentTeacherId(e.target.value)}
                       required
-                      className="w-full text-base sm:text-sm border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                      className="w-full text-base sm:text-sm border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
                       <option value="">Choose teacher...</option>
                       {teachers.map(t => (
                         <option key={t.id} value={t.id}>
-                          [{t.teacher_type === 'Junior High' ? 'JHS' : 'SHS'}] {t.name} ({t.department})
+                          [{t.teacher_type === 'Junior High' ? 'JHS' : 'SHS'}] {t.name} {t.department ? `(${t.department})` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  {/* Responsive Date Range Picker */}
+                  {/* Date Range Picker */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
                     <div>
                       <label className="text-xs font-medium text-slate-600 block mb-1 flex items-center gap-1">
@@ -854,7 +852,9 @@ export default function App() {
                           </span>
                           {index === 0 && <span className="text-[9px] sm:text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded">Top Priority</span>}
                         </div>
-                        <p className="text-[11px] text-slate-500">{teacher.department}</p>
+                        {teacher.department && (
+                          <p className="text-[11px] text-slate-500">{teacher.department}</p>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1.5">
@@ -944,7 +944,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Add Teacher */}
+      {/* Modal: Add Teacher with Optional Department */}
       {showAddTeacher && user && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-2xl rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
@@ -967,13 +967,14 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-600 block mb-1">Department / Area</label>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">
+                    Department / Area <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
                   <input 
                     type="text" 
                     value={newTeacherDept} 
                     onChange={e => setNewTeacherDept(e.target.value)} 
-                    required 
-                    placeholder="e.g. Science / Mathematics"
+                    placeholder="e.g. Science / Mathematics (leave blank if none)"
                     className="w-full text-base sm:text-sm border border-slate-300 rounded-lg p-2.5" 
                   />
                 </div>
@@ -985,7 +986,7 @@ export default function App() {
                   <select 
                     value={newTeacherType}
                     onChange={e => setNewTeacherType(e.target.value)}
-                    className="w-full text-base sm:text-sm border border-slate-300 rounded-lg p-2.5 font-medium bg-white"
+                    className="w-full text-base sm:text-sm border border-slate-300 rounded-lg p-2.5 font-medium bg-white cursor-pointer"
                   >
                     <option value="Junior High">Junior High School (JHS)</option>
                     <option value="Senior High">Senior High School (SHS)</option>
@@ -1241,7 +1242,9 @@ export default function App() {
                         </span>
                         {index === 0 && <span className="text-[9px] sm:text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">Top Match</span>}
                       </div>
-                      <p className="text-[11px] text-slate-500">{sub.department} &bull; Current Points: <strong className="text-slate-700">{sub.points}</strong></p>
+                      <p className="text-[11px] text-slate-500">
+                        {sub.department ? `${sub.department} • ` : ''}Current Points: <strong className="text-slate-700">{sub.points}</strong>
+                      </p>
                       
                       <p className="text-[11px] text-emerald-700 font-medium mt-0.5 flex items-center gap-1">
                         <Check size={12} className="text-emerald-600" />
