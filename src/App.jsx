@@ -330,7 +330,7 @@ export default function App() {
     const { error } = await supabase.from('teachers').insert([
       { 
         name: newTeacherName.trim(), 
-        department: newTeacherDept.trim() || null, // Stores clean null/empty if omitted
+        department: newTeacherDept.trim() || '', // Stores clean null/empty if omitted
         teacher_type: newTeacherType,
         points: Number(newTeacherPoints) || 0,
         schedule: weeklySchedule
