@@ -4,7 +4,8 @@ import {
   Users, Clock, CheckCircle, AlertTriangle, UserPlus, 
   ArrowRight, X, LogIn, LogOut, ShieldCheck, Trash2, 
   CalendarClock, Plus, CheckSquare, Layers, Check, ArrowRightLeft, UserX,
-  Calendar, Copy, Coffee, LogOut as DismissalIcon, Loader2
+  Calendar, Copy, Coffee, LogOut as DismissalIcon, Loader2, UserCheck, 
+  Sparkles, CalendarDays
 } from 'lucide-react';
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -135,6 +136,7 @@ export default function App() {
     return [];
   }
 
+  // Helper: Get school days (skips Saturday and Sunday)
   function getSchoolDaysInRange(startStr, endStr) {
     const dates = [];
     let curr = new Date(startStr + 'T00:00:00');
@@ -150,6 +152,23 @@ export default function App() {
 
     if (dates.length === 0 && startStr) {
       dates.push(startStr);
+    }
+    return dates;
+  }
+
+  // Helper: Get upcoming 3 school days starting from today (skipping weekends)
+  function getUpcomingThreeDays() {
+    const dates = [];
+    let curr = new Date();
+    while (dates.length < 3) {
+      const dayOfWeek = curr.getDay();
+      // Only include weekdays (Mon-Fri) unless today itself is a weekend
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        dates.push(curr.toISOString().split('T')[0]);
+      } else if (dates.length === 0) {
+        dates.push(curr.toISOString().split('T')[0]);
+      }
+      curr.setDate(curr.getDate() + 1);
     }
     return dates;
   }
@@ -319,7 +338,7 @@ export default function App() {
     fetchData();
   }
 
-  // --- Admin Action: Add New Teacher (Department is now OPTIONAL) ---
+  // --- Admin Action: Add New Teacher ---
   async function handleAddTeacher(e) {
     e.preventDefault();
     if (!user) return alert('Only administrators can add teachers. Please log in.');
@@ -330,7 +349,7 @@ export default function App() {
     const { error } = await supabase.from('teachers').insert([
       { 
         name: newTeacherName.trim(), 
-        department: newTeacherDept.trim() || '', // Stores clean null/empty if omitted
+        department: newTeacherDept.trim() || '',
         teacher_type: newTeacherType,
         points: Number(newTeacherPoints) || 0,
         schedule: weeklySchedule
@@ -341,7 +360,7 @@ export default function App() {
 
     if (error) {
       console.error('Supabase Save Error:', error);
-      alert('Database error: ' + error.message + '\n\nIf error persists, run: alter table teachers alter column department drop not null; in Supabase SQL editor.');
+      alert('Database error: ' + error.message);
       return;
     }
 
@@ -447,6 +466,9 @@ export default function App() {
         .sort((a, b) => a.teacher.points - b.teacher.points)
     : [];
 
+  // Upcoming 3 Days for the "Who is subbing?" prominent section
+  const upcomingThreeDates = getUpcomingThreeDays();
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased">
       
@@ -516,13 +538,14 @@ export default function App() {
       </header>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6">
+      <main className="max-w-7xl mx-auto p-3 sm:p-4 md:p-6 space-y-5 sm:space-y-6">
 
+        {/* Read-Only Guest Notice */}
         {!user && (
           <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-sm">
             <span>
               <AlertTriangle size={14} className="inline mr-1 text-amber-600" />
-              Viewing as <strong>Teacher / Guest (Read-Only)</strong>. Log in as an administrator to report teacher absences or assign substitutes.
+              Viewing as <strong>Teacher / Guest (Read-Only)</strong>. Log in as an administrator to report absences or assign substitutes.
             </span>
             <button 
               onClick={() => setShowLoginModal(true)} 
@@ -551,7 +574,7 @@ export default function App() {
           </div>
           <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
             <div>
-              <p className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending</p>
+              <p className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending Tasks</p>
               <h2 className="text-xl sm:text-2xl font-bold text-amber-600">{pendingAbsences.length}</h2>
             </div>
             <Clock className="text-amber-500 w-5 h-5 sm:w-6 sm:h-6" />
@@ -565,10 +588,135 @@ export default function App() {
           </div>
         </div>
 
+        {/* ========================================================================= */}
+        {/* PROMINENT SECTION: WHO IS SUBBING TODAY & NEXT 2 DAYS? */}
+        {/* ========================================================================= */}
+        <section className="bg-white rounded-2xl border border-indigo-100 shadow-md p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-1.5 border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
+                <CalendarDays className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <span>Who is Subbing?</span>
+                  <span className="text-[11px] font-semibold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">
+                    Today & Next 2 School Days
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500">Live substitution duty schedule for the faculty</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 3 Responsive Day Columns */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
+            {upcomingThreeDates.map((dateStr, idx) => {
+              const isToday = idx === 0;
+              const isTomorrow = idx === 1;
+              const weekday = getWeekday(dateStr);
+              
+              // Covered duties on this day
+              const dayCoveredDuties = coveredAbsences.filter(a => a.absence_date === dateStr);
+              // Unassigned/pending duties on this day
+              const dayPendingCount = pendingAbsences.filter(a => a.absence_date === dateStr).length;
+
+              const labelTitle = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : weekday;
+
+              return (
+                <div 
+                  key={dateStr} 
+                  className={`rounded-xl border p-3.5 sm:p-4 space-y-3 transition flex flex-col justify-between ${
+                    isToday 
+                      ? 'bg-indigo-50/40 border-indigo-200 ring-1 ring-indigo-300/50' 
+                      : 'bg-slate-50/60 border-slate-200'
+                  }`}
+                >
+                  {/* Card Day Header */}
+                  <div>
+                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+                          isToday 
+                            ? 'bg-indigo-600 text-white' 
+                            : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {labelTitle}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-600">
+                          {formatDateFriendly(dateStr)}
+                        </span>
+                      </div>
+                      
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        dayCoveredDuties.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {dayCoveredDuties.length} {dayCoveredDuties.length === 1 ? 'sub' : 'subs'}
+                      </span>
+                    </div>
+
+                    {/* Pending Alert Badge for this day */}
+                    {dayPendingCount > 0 && (
+                      <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/80 px-2 py-1 rounded-lg flex items-center gap-1.5">
+                        <Clock size={12} className="text-amber-600 shrink-0" />
+                        <span><strong>{dayPendingCount}</strong> class still needs a substitute!</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Scheduled Duties List */}
+                  <div className="space-y-2.5 flex-1 mt-1">
+                    {dayCoveredDuties.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-slate-400 italic">
+                        No substitution duties scheduled for {labelTitle.toLowerCase()}.
+                      </div>
+                    ) : (
+                      dayCoveredDuties.map(duty => {
+                        const subTeacher = teachers.find(t => t.id === duty.sub_teacher_id);
+                        const absentTeacher = teachers.find(t => t.id === duty.absent_teacher_id);
+
+                        return (
+                          <div key={duty.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs space-y-1.5">
+                            {/* Substitute Name (Prominent) */}
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-bold text-indigo-900 flex items-center gap-1">
+                                <UserCheck size={14} className="text-emerald-600 shrink-0" />
+                                {subTeacher?.name || 'Assigned Substitute'}
+                              </span>
+                              <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${
+                                subTeacher?.teacher_type === 'Junior High' ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-purple-50 text-purple-700 border border-purple-200'
+                              }`}>
+                                {subTeacher?.teacher_type === 'Junior High' ? 'JHS' : 'SHS'}
+                              </span>
+                            </div>
+
+                            {/* Who they are covering for */}
+                            <p className="text-[11px] text-slate-500">
+                              Covering for: <span className="font-semibold text-red-600">{absentTeacher?.name || 'Absent Colleague'}</span>
+                            </p>
+
+                            {/* Class and Time info */}
+                            <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
+                              <span className="font-medium truncate max-w-[150px]">{duty.class_name}</span>
+                              <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono shrink-0">
+                                {formatTime(duty.start_time)} - {formatTime(duty.end_time)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
         {/* Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
 
-          {/* Left Column: Absence Logger & Tasks */}
+          {/* Left Column (7 cols): Absence Logger & Tasks */}
           <div className="lg:col-span-7 space-y-4 sm:space-y-6">
 
             {/* Admin: Report Absent Teacher */}
@@ -944,7 +1092,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Add Teacher with Optional Department */}
+      {/* Modal: Add Teacher */}
       {showAddTeacher && user && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-2xl rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
@@ -974,7 +1122,7 @@ export default function App() {
                     type="text" 
                     value={newTeacherDept} 
                     onChange={e => setNewTeacherDept(e.target.value)} 
-                    placeholder="e.g. Science / Mathematics (leave blank if none)"
+                    placeholder="e.g. Science / Mathematics (optional)"
                     className="w-full text-base sm:text-sm border border-slate-300 rounded-lg p-2.5" 
                   />
                 </div>
@@ -1057,8 +1205,6 @@ export default function App() {
                     <div key={period.id} className="p-2.5 bg-white border border-slate-200 rounded-lg shadow-sm space-y-2">
                       
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        
-                        {/* Time Inputs */}
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-slate-400">#{index + 1}</span>
                           <div className="flex items-center gap-1.5 text-xs">
@@ -1082,7 +1228,6 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Dropdown with Class, Vacant, Break, Dismissal */}
                         <div className="flex items-center justify-between sm:justify-end gap-2">
                           <select 
                             value={period.type}
@@ -1113,7 +1258,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* If Teaching Class, show Subject & Section inputs */}
                       {period.type === 'class' && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                           <input 
@@ -1178,7 +1322,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Responsive Modal: Assign Substitute */}
+      {/* Modal: Assign Substitute */}
       {activeAbsence && user && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50">
           <div className="bg-white w-full max-w-lg rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl space-y-3.5 max-h-[90vh] overflow-y-auto">
